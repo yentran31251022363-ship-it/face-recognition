@@ -35,31 +35,44 @@ MODEL_PATH = "face_recognition_model.h5"
 def load_my_model():
     if not os.path.exists(MODEL_PATH):
         with st.spinner("🔄 Đang tải file mô hình từ Google Drive (Chỉ tải lần đầu)..."):
-            # CHÚ Ý: Thay đoạn mã ID bên dưới bằng YOUR_FILE_ID bạn lấy từ Bước 1
+            # CHÚ Ý: Thay đoạn mã ID bên dưới bằng YOUR_FILE_ID từ Google Drive của bạn
             google_drive_id = "1Xxxxxxx_YOUR_FILE_ID_xxxxxxxxx" 
             url = f"https://drive.google.com/uc?id={google_drive_id}"
-            gdown.download(url, MODEL_PATH, quiet=False)
+            try:
+                gdown.download(url, MODEL_PATH, quiet=False)
+            except Exception as e:
+                st.error(f"Không thể tải file từ Google Drive. Vui lòng kiểm tra lại quyền chia sẻ liên kết. Lỗi: {e}")
+                st.stop()
             
-    model = tf.keras.models.load_model(MODEL_PATH)
-    return model
+    try:
+        model = tf.keras.models.load_model(MODEL_PATH)
+        return model
+    except Exception as e:
+        st.error(f"Lỗi khi nạp file mô hình .h5: {e}")
+        st.stop()
 
 try:
     model = load_my_model()
-    # Cập nhật danh sách tên người dùng của bạn tại đây
+    # Cập nhật danh sách tên người dùng của bạn tại đây (phải khớp thứ tự lúc train)
     CLASS_NAMES = ["Người dùng 1", "Người dùng 2"] 
 except Exception as e:
-    st.error(f"❌ Lỗi tải mô hình: {e}")
+    st.error(f"❌ Không thể khởi tạo hệ thống: {e}")
     st.stop()
 
 def predict_face(image):
-    img = image.resize((IMG_WIDTH, IMG_HEIGHT))
-    img_array = tf.keras.utils.img_to_array(img)
-    img_array = tf.expand_dims(img_array, 0)
+    # Chuẩn hóa ảnh về kích thước yêu cầu và chuyển sang RGB
+    img = image.convert("RGB")
+    img = img.resize((IMG_WIDTH, IMG_HEIGHT))
     
+    # Chuyển đổi thành mảng numpy và chuẩn hóa kiểu dữ liệu float32
+    img_array = tf.keras.utils.img_to_array(img)
+    img_array = tf.expand_dims(img_array, 0)  # Tạo batch (1, 180, 180, 3)
+    
+    # Dự đoán
     predictions = model.predict(img_array)
     score = predictions[0]
     class_idx = np.argmax(score)
-    confidence = score[class_idx] * 100
+    confidence = float(score[class_idx]) * 100
     
     return CLASS_NAMES[class_idx], confidence
 
@@ -91,18 +104,21 @@ with col2:
     st.subheader("🔍 Kết quả phân tích")
     if final_image is not None:
         with st.spinner("Đang nhận diện..."):
-            label, confidence = predict_face(final_image)
-        
-        st.markdown(
-            f"""
-            <div class="predict-box">
-                <h3 style='margin-top:0; color:#1E3A8A;'>KẾT QUẢ</h3>
-                <p style='font-size: 18px;'>Đối tượng: <strong style='color:#EF4444; font-size: 24px;'>{label}</strong></p>
-                <p style='font-size: 16px;'>Độ tin cậy: <strong>{confidence:.2f}%</strong></p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.progress(int(confidence))
+            try:
+                label, confidence = predict_face(final_image)
+                
+                st.markdown(
+                    f"""
+                    <div class="predict-box">
+                        <h3 style='margin-top:0; color:#1E3A8A;'>KẾT QUẢ</h3>
+                        <p style='font-size: 18px;'>Đối tượng: <strong style='color:#EF4444; font-size: 24px;'>{label}</strong></p>
+                        <p style='font-size: 16px;'>Độ tin cậy: <strong>{confidence:.2f}%</strong></p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.progress(int(min(max(confidence, 0), 100)))
+            except Exception as predict_error:
+                st.error(f"Lỗi trong quá trình xử lý ảnh nhận diện: {predict_error}")
     else:
         st.info("Vui lòng cung cấp hình ảnh để hệ thống thực hiện nhận diện.")
