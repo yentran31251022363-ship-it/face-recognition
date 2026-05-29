@@ -1,6 +1,7 @@
 streamlit>=1.30.0
-tensorflow-cpu
 pillow
 opencv-python-headless
 numpy<2.0.0
 gdown
+tflite-runtime
+
