@@ -2,7 +2,7 @@ import os
 import gdown
 import numpy as np
 import streamlit as st
-import tensorflow as tf
+import tflite_runtime.interpreter as tflite
 from PIL import Image
 
 # ==============================================================================
@@ -26,50 +26,57 @@ st.markdown(
 )
 
 IMG_HEIGHT, IMG_WIDTH = 180, 180
-MODEL_PATH = "face_recognition_model.h5"
+MODEL_PATH = "face_recognition_model.tflite"
 
 # ==============================================================================
-# TỰ ĐỘNG TẢI MÔ HÌNH TỪ GOOGLE DRIVE NẾU CHƯA CÓ TRÊN SERVER
+# TỰ ĐỘNG TẢI MÔ HÌNH TFLITE TỪ GOOGLE DRIVE
 # ==============================================================================
 @st.cache_resource
-def load_my_model():
+def load_tflite_model():
     if not os.path.exists(MODEL_PATH):
-        with st.spinner("🔄 Đang tải file mô hình từ Google Drive (Chỉ tải lần đầu)..."):
-            # CHÚ Ý: Thay đoạn mã ID bên dưới bằng YOUR_FILE_ID từ Google Drive của bạn
-            google_drive_id = "1Xxxxxxx_YOUR_FILE_ID_xxxxxxxxx" 
+        with st.spinner("🔄 Đang tải file mô hình siêu nhẹ từ Google Drive..."):
+            # CHÚ Ý: Thay đoạn mã ID bên dưới bằng ID file .tflite mới của bạn trên Drive
+            google_drive_id = "ĐIỀN_ID_FILE_TFLITE_MỚI_VÀO_ĐÂY" 
             url = f"https://drive.google.com/uc?id={google_drive_id}"
             try:
                 gdown.download(url, MODEL_PATH, quiet=False)
             except Exception as e:
-                st.error(f"Không thể tải file từ Google Drive. Vui lòng kiểm tra lại quyền chia sẻ liên kết. Lỗi: {e}")
+                st.error(f"Không thể tải file mô hình. Lỗi: {e}")
                 st.stop()
             
     try:
-        model = tf.keras.models.load_model(MODEL_PATH)
-        return model
+        # Khởi tạo bộ thông dịch TFLite thay cho Keras Model
+        interpreter = tflite.Interpreter(model_path=MODEL_PATH)
+        interpreter.allocate_tensors()
+        return interpreter
     except Exception as e:
-        st.error(f"Lỗi khi nạp file mô hình .h5: {e}")
+        st.error(f"Lỗi khi khởi tạo mô hình TFLite: {e}")
         st.stop()
 
 try:
-    model = load_my_model()
-    # Cập nhật danh sách tên người dùng của bạn tại đây (phải khớp thứ tự lúc train)
+    interpreter = load_tflite_model()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    
+    # Cập nhật danh sách tên người dùng của bạn tại đây (phải đúng thứ tự lúc train)
     CLASS_NAMES = ["Người dùng 1", "Người dùng 2"] 
 except Exception as e:
     st.error(f"❌ Không thể khởi tạo hệ thống: {e}")
     st.stop()
 
 def predict_face(image):
-    # Chuẩn hóa ảnh về kích thước yêu cầu và chuyển sang RGB
+    # Chuẩn hóa ảnh về kích thước yêu cầu và định dạng float32
     img = image.convert("RGB")
     img = img.resize((IMG_WIDTH, IMG_HEIGHT))
+    img_array = np.array(img, dtype=np.float32)
+    img_array = np.expand_dims(img_array, axis=0)  # Tạo batch (1, 180, 180, 3)
     
-    # Chuyển đổi thành mảng numpy và chuẩn hóa kiểu dữ liệu float32
-    img_array = tf.keras.utils.img_to_array(img)
-    img_array = tf.expand_dims(img_array, 0)  # Tạo batch (1, 180, 180, 3)
+    # Đưa dữ liệu ảnh vào mô hình TFLite
+    interpreter.set_tensor(input_details[0]['index'], img_array)
+    interpreter.invoke()
     
-    # Dự đoán
-    predictions = model.predict(img_array)
+    # Lấy kết quả dự đoán đầu ra
+    predictions = interpreter.get_tensor(output_details[0]['index'])
     score = predictions[0]
     class_idx = np.argmax(score)
     confidence = float(score[class_idx]) * 100
@@ -80,7 +87,7 @@ def predict_face(image):
 # GIAO DIỆN CHÍNH
 # ==============================================================================
 st.title("👤 Hệ Thống Nhận Diện Khuôn Mặt Thông Minh")
-st.markdown("Ứng dụng chạy trực tuyến ổn định 24/7.")
+st.markdown("Ứng dụng chạy trực tuyến sử dụng TFLite siêu tốc.")
 st.hr()
 
 col1, col2 = st.columns([1, 1], gap="large")
